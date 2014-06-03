@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- package name must be unique so suffix with "tests" so package loader doesn't ignore us -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="just4fun.android.demo1.tests"
+          android:versionCode="1"
+          android:versionName="1.0">
+    <uses-sdk android:minSdkVersion="8" />
+    <!-- We add an application tag here just so that we can indicate that
+         this package needs to link against the android.test library,
+         which is needed when building test cases. -->
+    <application>
+        <uses-library android:name="android.test.runner"/>
+    </application>
+    <!--
+    This declares that this application uses the instrumentation test runner targeting
+    the package of just4fun.android.demo1.  To run the tests use the command:
+    "adb shell am instrument -w just4fun.android.demo1.tests/android.test.InstrumentationTestRunner"
+    -->
+<!--
+    android:name="android.test.InstrumentationTestRunner"
+-->
+    <instrumentation
+            android:name="just4fun.android.demo1.test.XInstrumentation"
+            android:targetPackage="just4fun.android.demo1"
+            android:label="Tests for just4fun.android.demo1"/>
+</manifest>

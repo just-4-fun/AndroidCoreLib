@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/AppDemo1/AppDemo1.iml" filepath="$PROJECT_DIR$/AppDemo1/AppDemo1.iml" />
+      <module fileurl="file://$PROJECT_DIR$/MacroTest1/MacroTest1.iml" filepath="$PROJECT_DIR$/MacroTest1/MacroTest1.iml" />
+      <module fileurl="file://$PROJECT_DIR$/ScalaTest1/ScalaTest1.iml" filepath="$PROJECT_DIR$/ScalaTest1/ScalaTest1.iml" />
+      <module fileurl="file://$PROJECT_DIR$/Test1/Test1.iml" filepath="$PROJECT_DIR$/Test1/Test1.iml" />
+      <module fileurl="file://$PROJECT_DIR$/_AndroidCoreLib.iml" filepath="$PROJECT_DIR$/_AndroidCoreLib.iml" />
+    </modules>
+  </component>
+</project>
+
