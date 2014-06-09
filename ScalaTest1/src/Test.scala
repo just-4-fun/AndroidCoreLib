@@ -1,10 +1,37 @@
+import java.io.StringReader
+import scala.annotation.tailrec
+import scala.util.Try
+
 
 object ScalaTest extends App {
 
 
-	test.Test
+		test.Test1
 
-/**
+	/** DYNAMICS
+	import scala.language.dynamics
+	val some1 = new Something
+	some1.dynamicMethod("with", "some", 1338)
+	some1.node(nickname = "ktoso")
+	some1.anything = "bla"
+	println(some1.anything)
+	println(some1.nothing)
+
+	class Something extends Dynamic {
+		private val box = collection.mutable.Map[String, Any]()
+		def applyDynamic(methodName: String)(args: Any*) {
+			println( s"""methodName: $methodName,  args: ${args.mkString(",") }""".stripMargin)
+		}
+		def applyDynamicNamed(name: String)(args: (String, Any)*) {
+			println(s"""Creating a $name, for:\n "${args.head._1}": "${args.head._2}" """)
+		}
+		def selectDynamic(name: String): Any = {val v = box(name); println(s"key= $name; value= $v"); v}
+		def updateDynamic(name: String)(value: Any) { box(name) = value }
+	}
+	  */
+
+
+	/**
 	trait Pty {val typ: String; val name: String; def cast(): String}
 	trait C1 extends Pty{val c1v1: Int; def cast() = "C1"}
 	trait C2 extends Pty{val c2v1: Int; def cast() = "C2"}
@@ -22,7 +49,7 @@ object ScalaTest extends App {
 	val col3 = new C4("col3","Double", 3, 4, 5)
 	val col: C2 = col3
 	println(col.name+" "+col.c2v1+" "+col.cast())
-*/
+	  */
 
 	/**
 	val t0 = System.currentTimeMillis()
