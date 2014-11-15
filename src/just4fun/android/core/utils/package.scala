@@ -2,8 +2,8 @@ package just4fun.android.core
 
 import scala.collection.GenTraversableOnce
 import android.os.SystemClock
-import just4fun.android.core.utils.Logger._
 import scala.util.{Failure, Success, Try}
+import project.config.logging.Logger._
 
 package object utils {
 

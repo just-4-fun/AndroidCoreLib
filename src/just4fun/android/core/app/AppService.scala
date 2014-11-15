@@ -1,40 +1,52 @@
 package just4fun.android.core.app
 
-import just4fun.android.core.async.{AsyncContext, HandlerContextInitializer}
+import just4fun.android.core.async.{AsyncExecContext, AsyncExecContextInitializer}
 import just4fun.android.core.utils._
-import Logger._
+import project.config.logging.Logger._
 import scala.Some
 import scala.util.{Failure, Success, Try}
 
 
-/** [[AppService]] that extends it runs its [[AsyncContext]] in new [[Thread]] */
-trait ParallelThreadFeature {self: AppService =>}
+/** [[AppService]] that extends it runs its async operations in allocated parallel [[Thread]]. */
+trait ParallelThreadFeature {
+	self: AppService =>
+}
 
-///** [[AppService]] that extends it can be cooled down if not used for some period */
+/** [[AppService]] that extends it runs its async operations each in new [[Thread]] from pool. */
+trait NewThreadFeature {
+	self: AppService =>
+}
+
+///** [[AppService]] that extends it can be cooled down if not used for some period. */
 //trait CoolDownFeature {self: AppService =>}
 
-/** [[AppService]] that extends it starts in first turn and stops last */
-trait FirstInLastOutFeature {self: AppService =>}
+/** [[AppService]] that extends it starts in first turn and stops last. */
+trait FirstInLastOutFeature {
+	self: AppService =>
+}
 
 /** [[AppService]] that extends it ensures that it can start right after init.
 That is isStarted is called sequentially right after onInitialize, and if true is returned onStart is called. And service is considered Accessible. */
-trait HotStartFeature {self: AppService =>}
+trait HotStartFeature {
+	self: AppService =>
+}
 
 
 
-trait AppService extends HandlerContextInitializer with AppServiceAccessibilityWatcher with Loggable {self: Initializer =>
+trait AppService extends AsyncExecContextInitializer with Loggable {
 
 	import ServiceState._
 	type Config <: AnyRef
 	implicit protected[app] var context: AppServiceContext = _
 	implicit val thisService: AppService = this
-	lazy protected val contexts = collection.mutable.Set[Int]().empty
-	lazy protected val watchers = collection.mutable.WeakHashMap[AppServiceAccessibilityWatcher, Boolean]()
+	lazy protected[app] val contexts = collection.mutable.Set[Int]().empty
 	protected var configOpt: Option[Config] = None
-	private var _id: String = _
+	private var _serviceId: String = _
 	private var _state = NONE
+	protected var startedStatus, stoppedStatus: Try[Boolean] = Success(false)
 	protected[app] var startCanceled: Boolean = _
 	protected[app] var stopTimeout: Boolean = _
+	lazy protected val activeWatchers = collection.mutable.WeakHashMap[ActiveStateWatcher, Boolean]()
 
 
 	def state: ServiceState.Value = _state
@@ -48,39 +60,30 @@ trait AppService extends HandlerContextInitializer with AppServiceAccessibilityW
 	/* OVERRIDE */
 
 	/** Override to define unique registration id for service */
-	def ID: String = { if (isEmpty(_id)) _id = getClass.getSimpleName; _id }
-	def getStateInfo(): String = ""
+	def ID: String = { if (isEmpty(_serviceId)) _serviceId = getClass.getSimpleName; _serviceId }
+	def stateInfo(): String = ""
 
 	/* OVERRIDE Lifecycle triggers */
 
 	protected def onInitialize(): Unit = ()
-	protected def onStart(): Unit = ()
-	protected def isStarted: Boolean = true
+	protected def onStart(): Unit = startedStatus = Success(true)
 	protected def onStartCancel(): Unit = ()
-	protected def onStop(): Unit = ()
-	protected def isStopped: Boolean = true
+	protected def isStarted(canceled: Boolean): Try[Boolean] = startedStatus
+	protected def onStop(): Unit = stoppedStatus = Success(true)
 	protected def onStopTimeout(): Unit = ()
+	protected def isStopped(): Try[Boolean] = stoppedStatus
 	protected def onFinalize(): Unit = ()
 
 	protected[app] def onUiVisible(yes: Boolean): Unit = ()
-	/** Real time availability status. May be not the same as STARTED state. Used in [[ifAvailable]]
-	  * @return true  if available right now
-	  */
-	protected[this] def isAvailable: Boolean = isStarted
-
-	/** Used to handle Start phase accessibility of Service(s) from which this Service is dependent from.
-	  * @note implementation from [[AppServiceAccessibilityWatcher]].
-	  */
-	def onServiceAccessibility(s: AppService, available: Boolean): Boolean = true
 
 
 	/* INTERNAL API */
 	// TODO ALLOW AFTER INIT
 	def register(conf: Config = null.asInstanceOf[Config], id: String = null): this.type = {
-		val cxt = ServiceManager.current
-		if (contexts add cxt.hashCode()) {
-			_id = id
-			context = cxt
+		if (ServiceManager.activeContext == null) loge(msg = s"AppService $id can not be registered without context. ")
+		else if (contexts add ServiceManager.activeContext.hashCode()) {
+			_serviceId = id
+			context = ServiceManager.activeContext
 			configOpt = Option(conf)
 			state = state match {
 				case NONE | FINALIZED | FAILED => INIT // init / reinit
@@ -98,6 +101,7 @@ trait AppService extends HandlerContextInitializer with AppServiceAccessibilityW
 	protected[app] def cancelStart(): Unit = if (state == START) TryNLog { startCanceled = true; onStartCancel() }
 	protected[app] def timeout(): Unit = if (state < STOPPED) TryNLog { stopTimeout = true; onStopTimeout() }
 	protected[app] def onUnregistered(implicit cxt: AppServiceContext): Unit = contexts.remove(cxt.hashCode())
+	protected[app] def garbage = contexts.isEmpty
 
 
 
@@ -106,43 +110,75 @@ trait AppService extends HandlerContextInitializer with AppServiceAccessibilityW
 
 	protected[app] final def nextState() = {
 		//
-		// Execution
+		// EXECUTE
 		//
 		val prevState = state
 		state match {
 			case NONE =>
 			case INIT => initialise
-			case INITED => if (mayStart && canStart) start
+			case INITED => start
 			case START => started
-			case STARTED => if (mayStop && canStop) stop
+			case ACTIVE => stop
 			case STOP => stopped
 			case STOPPED => finalise
 			case FINALIZED =>
 			case FAILED =>
 			case _ =>
 		}
-		if (state != prevState) accessibilityChange foreach accessibilityChanged
+		if (state != prevState) triggerActiveStateChange()
 		if (state >= FINALIZED) recycle
 		//
-		// Definitions
+		// DEFs
 		//
 		def initialise = {
 			state = INITED
 			trying { preInitialize(); onInitialize() }
-			if (state == INITED && isHot) trying { if (isStarted) start }
+			if (state == INITED && isInstanceOf[HotStartFeature]) trying {
+				isStarted(startCanceled) match {
+					case Success(true) => start
+					case Failure(ex) => fail(ex)
+					case _ =>
+				}
+			}
 		}
 		def mayStart = context.state.has(START)
-		def canStart = !Dependencies.isDependent(this, _.state < STARTED)
-		def start = trying { state = START; onStart(); if (state == START) started }
-		def started: Boolean = {
-			trying { if (isStarted || stopTimeout) state = STARTED }
-			state == STARTED
+		def canStart = !Dependencies.hasParent(this, { parent =>
+			if (parent.state < ACTIVE) true
+			else if (parent.state > ACTIVE) {fail(DependencyException); true }
+			else false
+		})
+		def start = if (mayStart && canStart) trying {
+			state = START
+			onStart()
+			if (state == START) started
 		}
-		def mayStop = context.state.hasAll(STARTED, STOP)
-		def canStop = !Dependencies.hasDependent(this, _.state < STOPPED)
-		def stop = trying { state = STOP; onStop(); if (state == STOP) stopped }
+		def started: Boolean = {
+			trying {
+				isStarted(startCanceled) match {
+					case Success(true) => state = ACTIVE
+					case Success(false) if stopTimeout => fail(TimeoutException)
+					case Failure(ex) => fail(ex)
+					case _ =>
+				}
+			}
+			state == ACTIVE
+		}
+		def mayStop = context.state.hasAll(ACTIVE, STOP)
+		def canStop = !Dependencies.hasChild(this, _.state < STOPPED)
+		def stop = if (mayStop && canStop) trying {
+			if (state != FAILED) state = STOP
+			onStop()
+			if (state == STOP) stopped
+		}
 		def stopped: Boolean = {
-			trying { if (isStopped || stopTimeout) state = STOPPED }
+			trying {
+				isStopped() match {
+					case Success(true) => state = STOPPED
+					case Success(false) if stopTimeout => fail(TimeoutException)
+					case Failure(ex) => fail(ex)
+					case _ =>
+				}
+			}
 			state == STOPPED
 		}
 		def finalise = {
@@ -150,63 +186,52 @@ trait AppService extends HandlerContextInitializer with AppServiceAccessibilityW
 			trying { onFinalize() }
 			trying { postFinalize() }
 		}
-		def trying(code: => Unit): Unit = try {code} catch {case ex: Throwable => loge(ex); fail(ex) }
-		def fail(err: Throwable) = if (state < FAILED) {
-			val prevState = state
-			state = FAILED
-			if (prevState < STARTED) context.onServiceStartFailed(this, err)
-			if (prevState < FINALIZED) finalise
-		}
-		def accessibilityChanged(accessibe: Boolean) {
-			fireAccessibilityChage(accessibe)
-			if (prevState < STARTED) Dependencies.withDependents(this, _.onServiceAccessibility(this, accessibe))
+		def trying(code: => Unit): Unit = try {code} catch {case err: Throwable => fail(err) }
+		def fail(err: Throwable) = {
+			loge(err, s"AppService $ID failed with error: ")
+			if (state < FAILED) {
+				val prevState = state
+				state = FAILED
+				if (prevState == START || prevState == ACTIVE) stop
+				if (prevState < FINALIZED) finalise
+				if (prevState < ACTIVE) context.onServiceStartFailed(this, err)
+			}
 		}
 		def recycle = {
 			context = null
-			_id = null
+			_serviceId = null
 			configOpt = None
+			startedStatus = Success(false)
+			stoppedStatus = Success(false)
 			startCanceled = false
 			stopTimeout = false
-			watchers.clear()
-			contexts.clear()
-			Dependencies.remove(_ == this)
+			activeWatchers.clear()
 		}
-		def isHot = isInstanceOf[HotStartFeature]
 	}
 
 
 
 
-	/* USAGE */
-
-	/**
-	 */
-	protected[this] def ifAvailable[R](code: => R): Try[R] =
-		if (isAvailable) try {Success(code)} catch {case e: Throwable => Failure(e) }
-		else Failure(UnavailableException)
-
-
-
-
-	/* ACCESSIBILITY CHANGE WATCH */
-	/**
-	Tracks STARTED / STOP / FAILED states of service. Still service may be not available @see [[isAvailable]]
-	  * @param watcher
+	/* ACTIVE STATE WATCHING */
+	/** Service functionality should be wrapped in this method to avoid access to service while it is not started. */
+	protected[this] def ifActive[R](code: => R): Try[R] =
+		if (state == ACTIVE) try {Success(code)} catch {case e: Throwable => Failure(e) }
+		else Failure(ServiceNotActiveException)
+	/** Registers watcher of [[ACTIVE]] state change of service.
+	@param watcher receives onServiceStarted event
 	  */
-	def watchAccessibility(watcher: AppServiceAccessibilityWatcher): Unit = {
-		watchers += (watcher -> true)
-		accessibilityChange foreach fireAccessibilityChage
+	def watchActiveStateChange(watcher: ActiveStateWatcher): Unit = {
+		activeWatchers += (watcher -> true)
+		triggerActiveStateChange(watcher)
 	}
-	def fireAccessibilityChage(accessibe: Boolean) = watchers foreach { case (w, _) =>
-		val keep = w.onServiceAccessibility(this, accessibe)
-		if (!keep || !accessibe) watchers -= w
-	}
-	protected[this] def accessibilityChange: Option[Boolean] = {
-		if (state == STARTED) Some(true)
-		else if (state >= STOP) Some(false)
-		else None
+	/** Triggers [[ACTIVE]] state change of service. */
+	protected def triggerActiveStateChange(specific: ActiveStateWatcher = null) = if (state >= ACTIVE) {
+		val active = state == ACTIVE
+		val watchers = if (specific == null) activeWatchers.map(_._1) else List(specific)
+		watchers foreach { w =>
+			val keepWatching = w.onActiveStateChanged(this, active)
+			if (!keepWatching || !active) activeWatchers -= w
+		}
 	}
 
 }
-
-

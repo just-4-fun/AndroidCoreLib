@@ -8,12 +8,8 @@ package object app {
 		val NONE, CREATED, STARTED, RESUMED, PAUSED, STOPPED, DESTROYED = Value
 	}
 
-	object AppState extends Enumeration {
-		val INIT, START, STOP, EXITING, FAILED = Value
-	}
-
 	object ServiceState extends Enumeration {
-		val NONE, INIT, INITED, START, STARTED, STOP, STOPPED, FINALIZED, FAILED = Value
+		val NONE, INIT, INITED, START, ACTIVE, STOP, STOPPED, FINALIZED, FAILED = Value
 	}
 
 
@@ -43,21 +39,22 @@ package object app {
 
 
 	/* EXCEPTIONS */
-	case object UnavailableException extends Exception
+	case object ServiceNotActiveException extends Exception
 	case object DependencyException extends Exception
 	case object NoConfigException extends Exception
+	case object TimeoutException extends Exception
 
 
 
 
 	/* SERVICE AVAILABILITY WATCHER */
-	trait AppServiceAccessibilityWatcher {
-		/** Is called when Service s becomes available for use (STARTED) or unavailable (FAILED or stopped)
-		  * @param s Service to watch
-		  * @param available true - if s can be used; false otherwise
+	trait ActiveStateWatcher {
+		/** Is called when Service started (state = STARTED) or inaccessible (state >= STOP).
+		  * @param service Service that state is watched
+		  * @param active true - if service is started; false otherwise
 		  * @return  true - to keep watching; false - to stop watching
 		  */
-		def onServiceAccessibility(s: AppService, available: Boolean): Boolean
+		def onActiveStateChanged(service: AppService, active: Boolean): Boolean
 	}
 
 

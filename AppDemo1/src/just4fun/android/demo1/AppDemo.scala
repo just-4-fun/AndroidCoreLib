@@ -1,11 +1,12 @@
 package just4fun.android.demo1
 
-import just4fun.android.core.app.{ParallelThreadFeature, AppServiceContext, App}
-import just4fun.android.core.utils.Logger._
+import just4fun.android.core.app.{AppService, ParallelThreadFeature, AppServiceContext, App}
+import just4fun.android.core.sqlite.DbService
 import just4fun.android.core.utils._
 import just4fun.android.core.persist._
-import just4fun.android.core.inet.{InetRequest, InetStateListener, InetOptions, InetService}
+import just4fun.android.core.inet.{InetRequest, OnlineStatusListener, InetOptions, InetService}
 import just4fun.android.core.{inet, async}
+import project.config.logging.Logger._
 
 trait AppTest
 object Inet extends InetService with ParallelThreadFeature
@@ -15,7 +16,7 @@ class AppDemo extends App {
 	//	Test1
 	//	TestKeepOnExit
 	//	TestTimeout
-	TestSequenceSingleSimple
+//	TestSequenceSingleSimple
 	//	TestSequenceMultiSimple
 	//	TestSharedSingle
 	//	TestSharedMulty
@@ -23,17 +24,24 @@ class AppDemo extends App {
 	//	TestDependMultiSimple2
 	//	TestDependShared2
 	//	TestDependFILO1
+	TestDbTable1
 
 
 
-	object TestInet extends InetStateListener {
-		override def onlineStatusChanged(isOnline: Boolean, byUser: Boolean): Unit = if (isOnline) {
+	override def isServiceStartFatalError(service: AppService, err: Throwable): Boolean = {
+		service match {
+			case s: DbService => true
+			case _ => false
+		}
+	}
+	object TestInet extends OnlineStatusListener {
+		override def onlineStatusChanged(isOnline: Boolean): Unit = if (isOnline) {
 			val futRes = Inet.loadString(InetOptions("http://www.google.com"))
 			futRes.onSuccessInUi {
-				case text => loge("RESULT Ok= " + text)
+				case text => logi("RESULT Ok= " + text)
 			}
 			futRes.onFailureInUi{
-				case e: Throwable => loge(s"RESULT Err= $e")
+				case e: Throwable => loge(msg = s"RESULT Err= $e")
 			}
 		}
 	}
@@ -73,7 +81,7 @@ class AppDemo extends App {
 		//		Test1()
 		//		TestKeepOnExit()
 		//		TestTimeout()
-		TestSequenceSingleSimple()
+//		TestSequenceSingleSimple()
 		//		TestSequenceMultiSimple()
 		//		TestSharedSingle()
 		//		TestSharedMulty()
@@ -81,6 +89,8 @@ class AppDemo extends App {
 		//		TestDependMultiSimple2()
 		//		TestDependShared2()
 		//		TestDependFILO1()
+		TestDbTable1()
+
 	}
 
 	override def onExited(): Unit = {
@@ -101,9 +111,9 @@ object Test extends Loggable {
 			if (str.nonEmpty) str ++= "  :  "
 			str ++= s
 		}
-		loge("TEST CHECK >>     " + str.toString())
+		loge(msg = "TEST CHECK >>     " + str.toString())
 		//		if (generated.length> messages.length)
-		loge("TEST GENERATED >>     " + generated.map(_.id).mkString("  :  "))
+		loge(msg = "TEST GENERATED >>     " + generated.map(_.id).mkString("  :  "))
 		generated.clear()
 	}
 }

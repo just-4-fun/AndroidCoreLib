@@ -1,100 +1,79 @@
 package just4fun.android.core.app
 
-import just4fun.android.core.utils._
-import Logger._
 import just4fun.android.core.utils.BitState
+import project.config.logging.Logger
+import project.config.logging.Logger._
+
 import scala.util.Try
 
 /* Singleton */
 
 private[app] object ServiceManager {
 	var serviceMgr: ServiceManager = _
-	var current: AppServiceContext = _
-	//	def isActiveContext(context: AppServiceContext, service: AppService) = serviceMgr.isActiveContext(context, service)
+	var activeContext: AppServiceContext = _
 }
 
 /* ServiceManager */
 
 class ServiceManager extends Loggable {
-	import AppState._
-	import ServiceManager._
-	ServiceManager.serviceMgr = this
+	import just4fun.android.core.app.ServiceManager._
+	import just4fun.android.core.app.ServiceState._
+	serviceMgr = this
 	var app: App = _
 	var activityMgr: ActivityManager = _
 	lazy protected val contexts = collection.mutable.Set[AppServiceContext]()
 	protected var visible = false
-	// App state
-	val state = new BitState[AppState.Value] {
-		override def set(eVal: AppState.Value*): BitState[AppState.Value] = {
-			logw("STATE", s"${" " * (60 - TAG.name.length) } [APP]:     [$toString]  >+   ${eVal.mkString(",") }")
-			super.set(eVal: _*)
-		}
-		override def clear: BitState[AppState.Value] = {
-			logw("STATE", s"${" " * (60 - TAG.name.length) } [APP]:     [$toString]  >   CLEAR")
-			super.clear
-		}
-	}
 
 	def apply(app: App, aManager: ActivityManager) = {
 		this.app = app;
 		activityMgr = aManager
 	}
-	def isSingleInstance = app.keepAliveAfterStop || app.singleInstance
-
+	def activeState: BitState[ServiceState.Value] = if (activeContext == null) new BitState else activeContext.state
+	def active = activeContext != null
+	
 	/* LIFE CYCLE */
 
-	def onInit(): Unit = if (state.hasNoAll(INIT, FAILED)) {
-		state.set(INIT)
+	def onInit(): Unit = if (!active) {
 		KeepAliveService.initialize(app)
-		current = new AppServiceContext(this, app.timeoutDelay)
-		contexts.add(current)
-		app.onRegisterServices(current)
-		current.init()
+		activeContext = new AppServiceContext(this)
+		contexts.add(activeContext)
+		app.onRegisterServices(activeContext)
+		activeContext.init()
 	}
-	def onStart(): Unit = if (state.has(INIT)) {
-		if (state.hasNo(START)) {
-			state.set(START)
-			current.start()
-		}
-		else if (!visible) {
+	def onStart(): Unit = if (active) {
+		if (activeState.hasNoAll(START, FAILED)) activeContext.start()
+		else if (activeState.hasNoAll(STOP, FAILED) && !visible) {
 			visible = true
-			current.onVisible(visible)
+			activeContext.onVisible(visible)
 		}
 	}
-	def onHide(): Unit = if (state.has(START)) {
+	def onHide(): Unit = if (active && activeState.hasNoAll(STOP, FAILED)) {
 		visible = false
-		current.onVisible(visible)
+		activeContext.onVisible(visible)
 	}
-	def onStop(): Unit = {
-		val nonStop = app.keepAliveAfterStop && state.hasNoAll(FAILED, EXITING)
-		if (nonStop || state.hasNo(START) || state.has(STOP)) return
-		if (isSingleInstance) state.set(STOP) else state.clear()
-		current.stop()
+	def onStop(force: Boolean = false): Unit = if (active && activeState.hasNo(STOP) && (force || activeState.has(FAILED)  || !app.liveAfterStop)) {
+		activeContext.stop()
+		if (!app.liveAfterStop && !app.singleInstance) activeContext = null
 	}
-	def setExiting(): Unit = state.set(EXITING)
-
-	def onFinalized(implicit inst: AppServiceContext): Unit = {
-		contexts.remove(inst)
-		Dependencies.remove(_.state >= ServiceState.STOPPED)
-		if (inst == current) current = null
-		logv("onFinalize", s"stoppingInstances= ${contexts.size };  current ? ${current == null };   appStt= $state")
-		if (contexts.isEmpty && current == null) {
+	def onFinalized(implicit context: AppServiceContext): Unit = {
+		contexts.remove(context)
+		Dependencies.remove(_.garbage)
+		if (context == activeContext) activeContext = null
+		logv("onFinalize", s"contexts.size = ${contexts.size };  active ? $active")
+		if (contexts.isEmpty) {
 			Dependencies.clear()
-			if (state.has(FAILED)) state.setOnly(FAILED) else state.clear()
-			activityMgr.onExited() // May call onInit on some condition
-			if (state.isZero || state.hasOnly(FAILED)) KeepAliveService.finalise()
+			if (activityMgr.onExited()) KeepAliveService.finalise()
+			logw("APP", "            READY TO DIE")
 		}
 	}
-
-	def onServiceStartFailed(service: AppService, err: Throwable): Unit = {
-		if (Try { app.onServiceStartFailed(service, err) }.getOrElse(true)) {
-			state.set(FAILED)
-			onStop()
-			// TODO tell UI
-		}
+	def isServiceStartFatalError(service: AppService, err: Throwable): Boolean = {
+		Try { app.isServiceStartFatalError(service, err) }.getOrElse(true)
+		// TODO tell UI
 	}
-	// TODO Problem: in multi context case if older context is stopping later than new and both context are linked to shared service(s) the new context can stuck waiting old context's dependent service to stop
 }
+
+
+// Small Problem: in multi context case if older context is stopping later than new and both context are linked to one (shared) parent service the new context can stuck waiting for old context's child service(s) to stop because parent should wait all children, even from another context.
 
 
 /* SERVICE DEPENDENCIES */
@@ -102,10 +81,19 @@ class ServiceManager extends Loggable {
 private[app] object Dependencies {
 	private val relations = collection.mutable.Set[(AppService, AppService)]()
 
-	def put(up: AppService, down: AppService) = relations += (up -> down)
-	def remove(p: AppService => Boolean) = relations.retain { case (u, d) => !p(u) && !p(d) }
-	def withDependents(s: AppService, f: AppService => Unit) = relations.foreach { case (u, d) => if (u == s) f(d) }
-	def isDependent(s: AppService, p: AppService => Boolean) = relations.exists { case (u, d) => d == s && p(u) }
-	def hasDependent(s: AppService, p: AppService => Boolean) = relations.exists { case (u, d) => u == s && p(d) }
-	def clear() = relations.clear()
+	def put(parent: AppService, child: AppService) = relations += (parent -> child)
+	def remove(like: AppService => Boolean) =
+		relations.retain { case (p, c) => !like(p) && !like(c) }
+	def withChildren(parent: AppService, f: AppService => Unit) = 
+		relations.foreach { case (p, c) => if (p == parent) f(c) }
+	def withParents(child: AppService, f: AppService => Unit) =
+		relations.foreach { case (p, c) => if (c == child) f(p) }
+	def hasParent(child: AppService, cond: AppService => Boolean) =
+		relations.exists { case (p, c) => c == child && cond(p) }
+	def hasChild(parent: AppService, cond: AppService => Boolean) =
+		relations.exists { case (p, c) => p == parent && cond(c) }
+	def clear() = {
+		if (relations.nonEmpty) loge(msg = s"Dependencies must be empty, but > ${relations.mkString(", ")}")
+		relations.clear()
+	}
 }

@@ -8,7 +8,7 @@ trait AppConfig {
 	  Default is stopping app after activity finished (after back key pressed).
 	  * @return true - if app should  continue operating. false otherwise.
 	  */
-	var keepAliveAfterStop: Boolean = false
+	var liveAfterStop: Boolean = false
 	/**
 	Defines whether app waits current Instance to fully exit before init new one
 	or spawns new Instance after current instance stopped and new launch occurred.

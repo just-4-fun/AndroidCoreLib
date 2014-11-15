@@ -1,7 +1,7 @@
 package just4fun.android.core.app
 
 import android.app.Service
-import just4fun.android.core.utils.Logger._
+import project.config.logging.Logger._
 import android.content.{Context, Intent}
 import android.os.IBinder
 

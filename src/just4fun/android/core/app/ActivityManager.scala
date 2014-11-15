@@ -5,8 +5,9 @@ import android.app.Application.ActivityLifecycleCallbacks
 import android.os.Bundle
 import scala.ref.WeakReference
 import just4fun.android.core.utils._
-import Logger._
+import project.config.logging.Logger._
 import just4fun.android.core.async._
+import just4fun.android.core.async.Async._
 
 
 class ActivityManager extends ActivityLifecycleCallbacks with Loggable {
@@ -19,25 +20,24 @@ class ActivityManager extends ActivityLifecycleCallbacks with Loggable {
 	var reconfiguring = false
 
 	def apply(app: App, sManager: ServiceManager) = {
-		this.app = app; serviceMgr = sManager
+		this.app = app
+		serviceMgr = sManager
 	}
 	def exit() {
-		serviceMgr.setExiting()
-		val a = activity.get.getOrElse(null)
-		activities.foreach {case (_a, b) => if (_a != a && !_a.isFinishing && !_a.isDestroyed) _a.finish()}
+		val a = activity.get.orNull
+		activities.foreach { case (_a, b) => if (_a != a && !_a.isFinishing && !_a.isDestroyed) _a.finish() }
 		if (a != null && !a.isFinishing && !a.isDestroyed) activity().finish()
-		else serviceMgr.onStop()
+		else serviceMgr.onStop(true)
 	}
-	/** All instances have finalized */
-	def onExited(): Unit = {
-		activities.clear()
-		if (activity.notEmpty) activities += (activity() -> true)
+	/** Called when all instances have finalized */
+	def onExited(): Boolean = {
 		app.onExited()
-		//Start new instance if activity is visible
+		//Start new instance if activity is visible (if SingleInstance)
 		if (state >= CREATED && state <= RESUMED) {
 			serviceMgr.onInit()
-			if (state == RESUMED) post("Start Ui") {serviceMgr.onStart()}(UiThreadContext)
-		}
+			if (state == RESUMED) post("Start Ui") { serviceMgr.onStart() }(UiThreadContext)
+			false
+		} else true
 	}
 
 
@@ -53,16 +53,18 @@ class ActivityManager extends ActivityLifecycleCallbacks with Loggable {
 		newStt match {
 			case CREATED => activity = WeakRefActivity(a)
 				activities += (a -> true)
-				serviceMgr.onInit()
+				if (!reconfiguring) serviceMgr.onInit()
 			case STARTED => activity = WeakRefActivity(a)
 			case RESUMED => activity = WeakRefActivity(a)
+				if (!reconfiguring) serviceMgr.onStart()
 				reconfiguring = false
-				serviceMgr.onStart()
 			case PAUSED => if (a.isChangingConfigurations) reconfiguring = true
-			case STOPPED => if (!reconfiguring && !a.isFinishing && activity =? a) serviceMgr.onHide()
-			case DESTROYED => if (activity =? a && a.isFinishing) serviceMgr.onStop()
-				if (activity =? a) activity = WeakRefActivity(null)
-				activities -= a
+			case STOPPED => if (activity =? a && !reconfiguring && !a.isFinishing) serviceMgr.onHide()
+			case DESTROYED => activities -= a
+				if (activity =? a) {
+					if (a.isFinishing) serviceMgr.onStop()
+					activity = WeakRefActivity(null)
+				}
 			case _ =>
 		}
 		val isCurrent = activity.isEmpty || activity =? a

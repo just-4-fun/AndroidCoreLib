@@ -1,12 +1,13 @@
 package just4fun.android.core.app
 
-import just4fun.android.core.utils.{Logger, BitState}
-import Logger._
+import just4fun.android.core.utils.{BitState}
+import project.config.logging.Logger._
 import just4fun.android.core.async._
+import just4fun.android.core.async.Async._
 import just4fun.android.core.utils.time._
 
 
-class AppServiceContext(serviceMgr: ServiceManager, timeoutDelay: Long) extends HandlerContextInitializer with Loggable {self: Initializer =>
+class AppServiceContext(serviceMgr: ServiceManager) extends AsyncExecContextInitializer with Loggable {
 
 	import ServiceState._
 
@@ -28,22 +29,25 @@ class AppServiceContext(serviceMgr: ServiceManager, timeoutDelay: Long) extends 
 
 	/* SERVICE MANAGMENT */
 
-	/** Called by [[AppService]] */
+	/** TODO does not start tiking if registers in silent time. Need manage tiker. */
 	private[app] def registerService(s: AppService): Unit = services add s
-	def onServiceStartFailed(service: AppService, err: Throwable): Unit = serviceMgr.onServiceStartFailed(service, err)
-	def onServiceFinalized(s: AppService): Unit = if (services remove s) s.onUnregistered
-	def findService[S <: AppService](id: String): Option[S] = services.find(s => s.ID == id && s.isInstanceOf[S]).map(_.asInstanceOf[S])
+	def onServiceStartFailed(service: AppService, err: Throwable): Unit = {
+		if (serviceMgr.isServiceStartFatalError(service, err))  state.set(FAILED)
+	}
+	def unregisterService(s: AppService): Unit = if (services remove s) s.onUnregistered
+	def findService[S <: AppService : Manifest](id: String): Option[S] = services.collectFirst {
+		case s: S if s.ID == id => s
+	}
 
 
 	/* CONTEXT LIFE CYCLE */
 
 	def init(): Unit = {
 		preInitialize()
-		state.set(INIT, INITED)
-		featureFiLo()
+		state.set(INIT)
+		services.foreach(s => if (isFiLo(s)) assignFiLo(s))
 		postTik()
-		// DEFs of FIRST IN LAST OUT FEATURE
-		def featureFiLo() = services.foreach(s => if (isFiLo(s)) assignFiLo(s))
+		// DEFs
 		def isFiLo(s: AppService) = s.isInstanceOf[FirstInLastOutFeature]
 		def assignFiLo(up: AppService) = services.foreach(dp => if (!isFiLo(dp)) Dependencies.put(up, dp))
 	}
@@ -53,9 +57,9 @@ class AppServiceContext(serviceMgr: ServiceManager, timeoutDelay: Long) extends 
 		postTik()
 	}
 	def stop(): Unit = {
-		if (state.hasNo(STARTED)) cancelStart()
-		timeoutMs = deviceNow + timeoutDelay
 		state.set(STOP)
+		if (state.hasNo(ACTIVE)) cancelStart()
+		timeoutMs = deviceNow + App.config.timeoutDelay
 		postTik()
 		// DEFs
 		def cancelStart() = services foreach (s => if (s.context == this) s.cancelStart())
@@ -66,6 +70,7 @@ class AppServiceContext(serviceMgr: ServiceManager, timeoutDelay: Long) extends 
 	/* INTERNAL API */
 
 	def postTik(delayMs: Long = 0): Unit = post("TIK", delayMs) { nextState() }
+	def clearTik(): Unit = asyncExecContext.clear()
 
 	protected def nextState(): Unit = {
 		var totalN, startedN = 0
@@ -75,8 +80,8 @@ class AppServiceContext(serviceMgr: ServiceManager, timeoutDelay: Long) extends 
 				s.nextState()
 				totalN += 1
 				s.state match {
-					case STARTED => startedN += 1
-					case FINALIZED | FAILED => onServiceFinalized(s)
+					case ACTIVE => startedN += 1
+					case FINALIZED | FAILED => unregisterService(s)
 					case _ =>
 				}
 			}
@@ -85,29 +90,28 @@ class AppServiceContext(serviceMgr: ServiceManager, timeoutDelay: Long) extends 
 		val started = startedN == totalN
 		val finalized = totalN == 0
 		//
-		if (started && state.hasNo(STARTED)) onStarted()
+		if (started && state.hasNo(ACTIVE)) onStarted()
 		else if (state.has(STOP)) {
 			if (finalized && state.hasNo(FINALIZED)) onFinalized()
 			else if (isTimeout) onTimeout()
 		}
 		//
-		if (state.hasNo(START)) execContext.clear()
-		else if (started && state.hasNo(STOP)) execContext.clear()
-		else if (state.has(FINALIZED)) execContext.clear()
+		if (state.hasNo(START) || (started && state.hasNo(STOP)) || state.has(FINALIZED)) clearTik()
 		else postTik(tikDelay)
 		logv("tikState", s"state=$state; total= $totalN;  started= $startedN")
 		//
-		/* DEFINITIONS */
+		// DEFs
 		//
-		def onStarted() = state.set(STARTED)
+		def onStarted() = state.set(ACTIVE)
 		def onFinalized() = {
-			state.set(STOPPED, FINALIZED)
-			services foreach onServiceFinalized // for shared services if any
+			state.set(FINALIZED)
+			services foreach unregisterService // for shared services if any
 			postFinalize()
 			serviceMgr.onFinalized
 		}
-		def isTimeout = if (timeoutMs > 0 && deviceNow > timeoutMs) {timeoutMs = 0; true} else false
+		def isTimeout = if (timeoutMs > 0 && deviceNow > timeoutMs) {timeoutMs = 0; true } else false
 		def onTimeout() = services foreach (s => if (s.context == this) s.timeout())
+		// TODO move values to AppConfig
 		def tikDelay: Int = {
 			if (state.has(STOP)) 1000
 			else {

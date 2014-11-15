@@ -1,12 +1,13 @@
 package just4fun.android.core.inet
 
-import just4fun.android.core.app.{App, ParallelThreadFeature, FirstInLastOutFeature, AppService}
-import android.net.{ConnectivityManager => ConnMgr, NetworkInfo}
-import android.content.{IntentFilter, Intent, BroadcastReceiver, Context}
-import just4fun.android.core.utils.TryNLog
-import just4fun.android.core.utils.Logger._
+import android.content.{BroadcastReceiver, Context, Intent, IntentFilter}
+import android.net.{NetworkInfo, ConnectivityManager => ConnMgr}
+import just4fun.android.core.app._
+import just4fun.android.core.async.Async._
 import just4fun.android.core.async._
-import just4fun.android.core.async
+import just4fun.android.core.utils.TryNLog
+import project.config.logging.Logger._
+
 import scala.util.Try
 
 /* COMPANION */
@@ -20,16 +21,15 @@ object InetService {
 
 /* CLASS */
 
-abstract class InetService extends AppService with FirstInLastOutFeature {
-	import InetService._
+abstract class InetService extends AppService with NewThreadFeature with FirstInLastOutFeature {
+	import just4fun.android.core.inet.InetService._
 	override def ID: String = "INET"
 	private val LONG_SPAN: Int = 60000
 	private val SHORT_SPAN: Int = 4000
-	private val parallel = isInstanceOf[ParallelThreadFeature]
-	lazy private val listeners = collection.mutable.Set[InetStateListener]()
+	lazy private val listeners = collection.mutable.Set[OnlineStatusListener]()
 	private var receiver: BroadcastReceiver = _
 	private var checkSpan: Int = LONG_SPAN
-	private var post: FutureExt[Unit] = _
+	private var future: FutureExt[Unit] = _
 
 	/* USAGE */
 
@@ -40,25 +40,25 @@ abstract class InetService extends AppService with FirstInLastOutFeature {
 	  * @return
 	  */
 	def loadString(opts: InetOptions, canceled: () => Boolean = () => false): FutureExt[String] =
-		async.post("loadString") { loadStringSync(opts, canceled).get }(executionContext)
+		post("loadString") { loadStringSync(opts, canceled).get }
 	def loadBytes(opts: InetOptions, canceled: () => Boolean = () => false): FutureExt[Array[Byte]] =
-		async.post("loadBytes") { loadBytesSync(opts, canceled).get }(executionContext)
+		post("loadBytes") { loadBytesSync(opts, canceled).get }
 	/**
 	Sequential execution.
 	  * @param opts
 	  * @param canceled
 	  * @return
 	  */
-	def loadStringSync(opts: InetOptions, canceled: () => Boolean = () => false): Try[String] = ifAvailable {
+	def loadStringSync(opts: InetOptions, canceled: () => Boolean = () => false): Try[String] = ifActive {
 		InetRequest(opts.clone, new StreamToString, canceled).execute().get }
-	def loadBytesSync(opts: InetOptions, canceled: () => Boolean = () => false): Try[Array[Byte]] = ifAvailable {
+	def loadBytesSync(opts: InetOptions, canceled: () => Boolean = () => false): Try[Array[Byte]] = ifActive {
 		InetRequest(opts.clone, new StreamToBytes, canceled).execute().get }
 
-	def addListener(lr: InetStateListener, fireNow: Boolean = true) = {
+	def addListener(lr: OnlineStatusListener, fireNow: Boolean = true) = {
 		listeners += lr
-		if (fireNow) TryNLog { lr.onlineStatusChanged(_online, false) }
+		if (fireNow) TryNLog { lr.onlineStatusChanged(_online) }
 	}
-	def removeListener(lr: InetStateListener) = listeners -= lr
+	def removeListener(lr: OnlineStatusListener) = listeners -= lr
 
 	def isTypeAvailable(typ: Int) = { val info = connMgr.getNetworkInfo(typ); info != null && info.isAvailable }
 	def isMobileAvailable: Boolean = isTypeAvailable(ConnMgr.TYPE_MOBILE) || isTypeAvailable(ConnMgr.TYPE_WIMAX)
@@ -74,7 +74,7 @@ abstract class InetService extends AppService with FirstInLastOutFeature {
 			def onReceive(context: Context, intent: Intent) {
 				val isOnline = isReallyOnline
 				logv("onReceive", s"wasOnline: ${_online};  isOnline: $isOnline")
-				if (_online && !isOnline) fireEvent(false, false)
+				if (_online && !isOnline) fireEvent(false)
 				else if (!_online && isOnline) postCheck(SHORT_SPAN)
 			}
 		}
@@ -87,19 +87,17 @@ abstract class InetService extends AppService with FirstInLastOutFeature {
 		TryNLog { App().unregisterReceiver(receiver) }
 		receiver = null
 		postCheckCancel()
-		post = null
+		future = null
 	}
 
-	override protected[this] def isAvailable: Boolean = _online
-	override def getStateInfo() = s"online = ${_online}"
+	override def stateInfo() = s"online = ${_online}"
 
 	/* INTERNAL API */
-	private def executionContext = if (parallel) execContext else NewThreadContext
 	private def postCheck(span: Int = 0) = {
 		checkSpan = if (span == 0) checkSpan else span
-		post = postInUI("Check Online", checkSpan) { checkOnline() }
+		future = postInUI("Check Online", checkSpan) { checkOnline() }
 	}
-	private def postCheckCancel() = if (post != null) post.cancel()
+	private def postCheckCancel() = if (future != null) future.cancel()
 	private def connMgr = App().getSystemService(Context.CONNECTIVITY_SERVICE).asInstanceOf[ConnMgr]
 	private def isReallyOnline: Boolean = {
 		val netInfo: NetworkInfo = connMgr.getActiveNetworkInfo
@@ -107,13 +105,13 @@ abstract class InetService extends AppService with FirstInLastOutFeature {
 	}
 	private def checkOnline() {
 		val isOnline = isReallyOnline
-		if (isOnline != _online) fireEvent(isOnline, false)
+		if (isOnline != _online) fireEvent(isOnline)
 		else if (!isOnline) postCheck()
 	}
-	private def fireEvent(isOnline: Boolean, byUser: Boolean) {
+	private def fireEvent(isOnline: Boolean) {
 		_online = isOnline
-		logv("fireEvent", s"online: $isOnline,  byUser: $byUser,  listeners size: ${listeners.size }")
-		listeners.foreach { s => TryNLog { s.onlineStatusChanged(isOnline, byUser) } }
+		logv("fireEvent", s"online: $isOnline,  listeners size: ${listeners.size }")
+		listeners.foreach { s => TryNLog { s.onlineStatusChanged(isOnline) } }
 		if (!_online) postCheck(LONG_SPAN)
 		else postCheckCancel()
 	}

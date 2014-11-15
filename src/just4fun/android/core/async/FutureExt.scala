@@ -6,7 +6,7 @@ import scala.util.control.NonFatal
 import java.util.concurrent.CancellationException
 
 
-case class FutureExt[T](context: AsyncContext, id: Any) {
+case class FutureExt[T](context: AsyncExecContext, id: Any) {
 	val promise = Promise[T]()
 	var runnable: AsyncRunnable = _
 	var canceled = false
@@ -41,3 +41,9 @@ case class FutureExt[T](context: AsyncContext, id: Any) {
 	}
 
 }
+
+
+
+/* ASYNC RUNNABLE */
+
+abstract class AsyncRunnable(val id: Any) extends Runnable

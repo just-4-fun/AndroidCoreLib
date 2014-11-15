@@ -20,7 +20,7 @@ object BitState {
 	}
 }
 
-trait BitState[EV <: Enumeration#Value] {
+class BitState[EV <: Enumeration#Value] {
 
 	import BitState._
 
@@ -49,6 +49,16 @@ trait BitState[EV <: Enumeration#Value] {
 	def clear(eVal: EV*): BitState[EV] = {
 		if (eVal.isEmpty) clear
 		else for (v <- eVal) _value = ~bitVal(v) & _value
+		this
+	}
+
+	def clearAllBut(eVal: EV*): BitState[EV] = {
+		var _val = 0L
+		for (v <- eVal) {
+			val bv = bitVal(v)
+			if ((_value & bv) != 0) _val |= bv
+		}
+		_value = _val
 		this
 	}
 

@@ -1,7 +1,7 @@
 package just4fun.android.demo1
 
 import android.app.Activity
-import just4fun.android.core.utils.Logger._
+import project.config.logging.Logger._
 import android.os.Bundle
 import android.widget.Button
 import android.view.View

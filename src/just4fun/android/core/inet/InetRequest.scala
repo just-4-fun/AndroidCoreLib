@@ -9,11 +9,10 @@ import org.apache.http.NoHttpResponseException
 import javax.net.ssl.SSLException
 import just4fun.android.core.utils._
 import just4fun.android.core.utils.time._
-import just4fun.android.core.utils.Logger._
-import just4fun.android.core.utils.Logger.Loggable
 import just4fun.android.core.app.App
+import project.config.logging.Logger._
 
-case class InetRequest[T](opts: InetOptions, consumer: StreamToResult[T], canceled: () => Boolean) extends Loggable {
+case class InetRequest[T](opts: InetOptions, consumer: InputStream => Try[T], canceled: () => Boolean) extends Loggable {
 import InetRequest._
 	private[this] val startTime = now
 	private[this] var attempt = 0
@@ -80,7 +79,7 @@ import InetRequest._
 	private[this] def request(): Try[T] = {
 		conn.connect()
 		httpCode = conn.getResponseCode
-		if (httpCode >= 200 && httpCode < 300) consumer.consume(conn.getInputStream)
+		if (httpCode >= 200 && httpCode < 300) consumer(conn.getInputStream)
 		else Failure(new IOException)
 	}
 	private[this] def wasteStream(in: InputStream) {
@@ -92,7 +91,7 @@ import InetRequest._
 	private[this] def onError(ex: Throwable) = ex match {
 		case ex: IOException => if (conn != null) TryNLog {
 			httpMessage = conn.getResponseMessage
-			val errInfo = new StreamToString().consume(conn.getErrorStream).getOrElse("")
+			val errInfo = (new StreamToString)(conn.getErrorStream).getOrElse("")
 			httpMessage = (if (httpMessage == null) "" else httpMessage + ";  ") + errInfo
 		}
 		case ex: InetRequestException => httpCode = ex.code

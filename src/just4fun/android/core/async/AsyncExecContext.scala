@@ -1,17 +1,15 @@
 package just4fun.android.core.async
 
-import just4fun.android.core.utils.Logger
-import Logger._
 import scala.concurrent.ExecutionContext
-import android.os.{Looper, Message, Handler}
-import Logger.LogTag
+import android.os.{HandlerThread, Looper, Message, Handler}
+import project.config.logging.Logger._
 import java.util.concurrent.{LinkedBlockingQueue, ThreadFactory, TimeUnit, ThreadPoolExecutor}
 import java.util.concurrent.atomic.AtomicInteger
 import just4fun.android.core.app.Initializer
 
 
 /* INTERFACE */
-trait AsyncContext extends ExecutionContext with Loggable {
+trait AsyncExecContext extends ExecutionContext with Loggable {
 	// USAGE
 	def execute[T](id: Any, delayMs: Long = 0, replace: Boolean = true)(body: => T): FutureExt[T] = {
 		val future = FutureExt(this, id) thatRuns body
@@ -29,7 +27,7 @@ trait AsyncContext extends ExecutionContext with Loggable {
 	//ExecutionContext API
 	override def reportFailure(t: Throwable): Unit = loge(t)
 	//	def execute(r: Runnable): Unit
-	override def prepare(): AsyncContext = this
+	override def prepare(): AsyncExecContext = this
 	def execute(delay: Long, id: Any, r: Runnable): Unit
 	def cancel(idORrunnable: Any): Unit
 	def clear(): Unit
@@ -38,8 +36,12 @@ trait AsyncContext extends ExecutionContext with Loggable {
 
 }
 
+
+
+
+
 /* HANDLER   implementation */
-class HandlerContext(name: String, looper: Looper) extends AsyncContext {
+class HandlerContext(name: String, looper: Looper) extends AsyncExecContext {
 	override lazy implicit val TAG = LogTag(name + "_H")
 	private val QUIT = 0x011
 	private var quit = false
@@ -90,7 +92,15 @@ class HandlerContext(name: String, looper: Looper) extends AsyncContext {
 
 
 
-/* THREAD POOL implementation */
+
+
+
+/* THREAD POOL CONTEXT */
+
+/** [[threadPoolExecutor]] should be set in AppConfig before using this object. Else it will be set to [[DefaultThreadPoolExecutor]]  */
+object NewThreadContext extends ThreadPoolContext(threadPoolExecutor)
+
+
 
 object DefaultThreadPoolExecutor {
 	def apply(): ThreadPoolExecutor = {
@@ -107,7 +117,9 @@ object DefaultThreadPoolExecutor {
 	}
 }
 
-class ThreadPoolContext(var executor: ThreadPoolExecutor) extends AsyncContext {
+
+
+class ThreadPoolContext(var executor: ThreadPoolExecutor) extends AsyncExecContext {
 	import scala.collection.JavaConverters._
 	//
 	if (executor == null) executor = DefaultThreadPoolExecutor()
@@ -137,4 +149,21 @@ class ThreadPoolContext(var executor: ThreadPoolExecutor) extends AsyncContext {
 	}
 	//	override def reportFailure(t: Throwable): Unit = ???
 	//	override def prepare(): ExecutionContext = this
+}
+
+
+
+
+
+
+/* UI CONTEXT */
+
+/** Re-posts runnable if UI is reconfiguring */
+object UiThreadContext extends HandlerContext("Main", Looper.getMainLooper) {
+	override def handle(runnable: Runnable): Unit = {
+		super.handle(runnable)
+		// TODO make this code available
+		//			if (App.isReconfiguring) handler.post(runnable)
+		//			else super.handle(runnable)
+	}
 }

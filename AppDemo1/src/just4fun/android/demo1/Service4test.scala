@@ -2,11 +2,14 @@ package just4fun.android.demo1
 
 import just4fun.android.core.app
 import just4fun.android.core.app.{ServiceState, AppServiceContext, AppService}
-import just4fun.android.core.utils.Logger._
+import project.config.logging.Logger._
+
+import scala.util.{Success, Try}
 
 trait Service4test extends AppService {
 	override type Config = Null
-	var _started, _stopped = false
+	startedStatus = Success(false)
+	stoppedStatus = Success(false)
 	val msg = new StringBuilder
 	var name: String = _
 
@@ -22,19 +25,19 @@ trait Service4test extends AppService {
 		else msg ++= s"  >  $v"
 		super.state_=(v)
 	}
-	override protected def isStarted: Boolean = { _started }
-	override protected def isStopped: Boolean = { _stopped }
+	override protected def isStarted(canceled: Boolean): Try[Boolean] = startedStatus
+	override protected def isStopped(): Try[Boolean] = stoppedStatus
 	override protected def onStopTimeout(): Unit = {
 		logi("onStopTimeout", s"${" " * (90 - TAG.name.length) } [$name]:  TIMEOUT")
 	}
 
 	override protected def onFinalize(): Unit = {
-		_started = false
-		_stopped = false
+		startedStatus = Success(false)
+		stoppedStatus = Success(false)
 	}
 	override def onUnregistered(implicit cxt: AppServiceContext): Unit = {
 		val name = s"$ID: ${cxt.hashCode.toString.takeRight(3) }"
-		loge(s"${" " *  (30 - TAG.name.length)} [$name]:  ${msg.toString()}")
+		loge(msg = s"${" " *  (30 - TAG.name.length)} [$name]:  ${msg.toString()}")
 		msg.clear()
 		super.onUnregistered(cxt)
 	}

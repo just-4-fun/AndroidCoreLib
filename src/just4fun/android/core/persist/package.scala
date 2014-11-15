@@ -29,7 +29,7 @@ package object persist {
 		/** use implicit var2value as shortcut of call */
 		def get(deep: Boolean = false): T = { if (deep) value = load(); value }
 		def ~(v: T) = set(v)
-		def set(v: T, deep: Boolean = true) = if (value != v)_{ value = v; if (deep) save(v, cache.edit).commit }
+		def set(v: T, deep: Boolean = true) = if (value != v) { value = v; if (deep) save(v, cache.edit).commit }
 		def clear(deep: Boolean = true) { value = default; if (deep) cache.edit.remove(name).commit }
 		protected def load(): T = Try { fromString(cache.getString(name, initial.toString)) }.getOrElse(initial)
 		protected def save(v: T, editor: Editor): Editor = editor.putString(name, if (v == null) default.toString else v.toString)

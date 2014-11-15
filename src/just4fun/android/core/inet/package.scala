@@ -51,20 +51,10 @@ package object inet {
 	}
 
 
-	/*   INET LISTENER */
-	trait InetStateListener {
-		def onlineStatusChanged(isOnline: Boolean, byUser: Boolean)
-	}
-
-
-
 	/* STREAM CONSUMER */
-	trait StreamToResult[T] {
-		def consume(in: InputStream): Try[T]
-	}
 
-	class StreamToString extends StreamToResult[String] {
-		def consume(in: InputStream): Try[String] = {
+	class StreamToString extends (InputStream => Try[String]) {
+		def apply(in: InputStream): Try[String] = {
 			TryNClose(new BufferedReader(new InputStreamReader(in, UTF8))) { bufRd =>
 				val res = new StringBuilder
 				Stream.continually(bufRd.readLine()).takeWhile(_ != null).foreach(res.append)
@@ -75,8 +65,8 @@ package object inet {
 		}
 	}
 
-	class StreamToBytes extends StreamToResult[Array[Byte]] {
-		def consume(in: InputStream): Try[Array[Byte]] = {
+	class StreamToBytes extends (InputStream => Try[Array[Byte]]) {
+		def apply(in: InputStream): Try[Array[Byte]] = {
 			TryNClose(new BufferedInputStream(in)) { bufIn =>
 				TryNClose(new ByteArrayOutputStream(1024)) { out =>
 					val buf: Array[Byte] = new Array[Byte](1024)
@@ -88,6 +78,13 @@ package object inet {
 			}.flatten
 		}
 	}
-
+	
+	
+	
+	
+	/*   ONLINE STATE  LISTENER */
+	trait OnlineStatusListener {
+		def onlineStatusChanged(isOnline: Boolean)
+	}
 
 }
