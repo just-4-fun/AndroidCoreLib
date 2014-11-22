@@ -18,11 +18,14 @@ class ActivityManager extends ActivityLifecycleCallbacks with Loggable {
 	protected val activities = collection.mutable.WeakHashMap[Activity, Boolean]()
 	protected var state: ActivityState.Value = NONE
 	var reconfiguring = false
-
+	private val postId = "_onUiHide_"
+	val (aSTART_SERVICES, aVISIBLE_CHANGE, aVISIBLE_POST, aSTOP_SERVICES) = (0, 1, 2, 3)
+	
 	def apply(app: App, sManager: ServiceManager) = {
 		this.app = app
 		serviceMgr = sManager
 	}
+	def isVisible = state == RESUMED
 	def exit() {
 		val a = activity.get.orNull
 		activities.foreach { case (_a, b) => if (_a != a && !_a.isFinishing && !_a.isDestroyed) _a.finish() }
@@ -32,15 +35,10 @@ class ActivityManager extends ActivityLifecycleCallbacks with Loggable {
 	/** Called when all instances have finalized */
 	def onExited(): Boolean = {
 		app.onExited()
-		//Start new instance if activity is visible (if SingleInstance)
-		if (state >= CREATED && state <= RESUMED) {
-			serviceMgr.onInit()
-			if (state == RESUMED) post("Start Ui") { serviceMgr.onStart() }(UiThreadContext)
-			false
-		} else true
+		activity.isEmpty || activity().isFinishing
 	}
-
-
+	
+	
 	override protected def onActivityCreated(a: Activity, savedState: Bundle): Unit = onStateChange(a, CREATED)
 	override protected def onActivityStarted(a: Activity): Unit = onStateChange(a, STARTED)
 	override protected def onActivityResumed(a: Activity): Unit = onStateChange(a, RESUMED)
@@ -48,36 +46,45 @@ class ActivityManager extends ActivityLifecycleCallbacks with Loggable {
 	override protected def onActivityStopped(a: Activity): Unit = onStateChange(a, STOPPED)
 	override protected def onActivityDestroyed(a: Activity): Unit = onStateChange(a, DESTROYED)
 	override protected def onActivitySaveInstanceState(a: Activity, savedState: Bundle): Unit = ()
-
+	
 	protected def onStateChange(a: Activity, newStt: ActivityState.Value): Unit = {
+		var action = -1
 		newStt match {
 			case CREATED => activity = WeakRefActivity(a)
 				activities += (a -> true)
-				if (!reconfiguring) serviceMgr.onInit()
+				if (!reconfiguring) action = aSTART_SERVICES
 			case STARTED => activity = WeakRefActivity(a)
 			case RESUMED => activity = WeakRefActivity(a)
-				if (!reconfiguring) serviceMgr.onStart()
+				if (!reconfiguring) action = aVISIBLE_CHANGE
 				reconfiguring = false
-			case PAUSED => if (a.isChangingConfigurations) reconfiguring = true
-			case STOPPED => if (activity =? a && !reconfiguring && !a.isFinishing) serviceMgr.onHide()
+			case PAUSED => if (activity =? a && a.isChangingConfigurations) reconfiguring = true
+			case STOPPED => if (activity =? a && !reconfiguring && !a.isFinishing) action = aVISIBLE_CHANGE
 			case DESTROYED => activities -= a
 				if (activity =? a) {
-					if (a.isFinishing) serviceMgr.onStop()
+					if (a.isFinishing) action = aSTOP_SERVICES
 					activity = WeakRefActivity(null)
 				}
-			case _ =>
+			case _ => loge(msg = s"[onActivityStateChange] unknown state: ")
 		}
 		val isCurrent = activity.isEmpty || activity =? a
 		if (isCurrent) state = newStt
 		val reason = if (a.isFinishing) "finishing" else if (reconfiguring) "reconfiguring" else ""
+		// exec action on serviceMgr
+		action match {
+			case `aSTART_SERVICES` => serviceMgr.onStart()
+			case `aVISIBLE_CHANGE` => cancelPostUI(postId); serviceMgr.onVisibilityChange()
+			case `aSTOP_SERVICES` => serviceMgr.onStop()
+			case _ =>
+		}
 		logv("onActivityStateChange", s"Activity= ${if (isCurrent) "CURR" else "       " };  state= ${newStt.toString };  reason= ${if (nonEmpty(reason)) reason }")
 	}
+	
 
-
+	
 	/* WeakRefActivity HELPER */
 	case class WeakRefActivity(var a: Activity) extends WeakReference[Activity](a) {
 		a = null
-		def =?(v: Activity): Boolean = { if (get.isEmpty) false else get.get == v }
+		def =?(v: Activity): Boolean = if (get.isEmpty) false else get.get == v
 		def isEmpty = get.isEmpty
 		def notEmpty = !isEmpty
 	}

@@ -23,7 +23,7 @@ object InetService {
 
 abstract class InetService extends AppService with NewThreadFeature with FirstInLastOutFeature {
 	import just4fun.android.core.inet.InetService._
-	override def ID: String = "INET"
+	ID = "INET"
 	private val LONG_SPAN: Int = 60000
 	private val SHORT_SPAN: Int = 4000
 	lazy private val listeners = collection.mutable.Set[OnlineStatusListener]()
@@ -95,7 +95,7 @@ abstract class InetService extends AppService with NewThreadFeature with FirstIn
 	/* INTERNAL API */
 	private def postCheck(span: Int = 0) = {
 		checkSpan = if (span == 0) checkSpan else span
-		future = postInUI("Check Online", checkSpan) { checkOnline() }
+		future = postUI("Check Online", checkSpan) { checkOnline() }
 	}
 	private def postCheckCancel() = if (future != null) future.cancel()
 	private def connMgr = App().getSystemService(Context.CONNECTIVITY_SERVICE).asInstanceOf[ConnMgr]

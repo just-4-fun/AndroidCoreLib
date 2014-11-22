@@ -24,11 +24,11 @@ case class FutureExt[T](context: AsyncExecContext, id: Any) {
 	def thatRuns(body: => T): FutureExt[T] = {
 		construct(body)
 	}
-	def thatRunsCancellable(body: (() => Unit) => T): FutureExt[T] = {
-		construct(body(failIFcanceled))
+	def thatRunsCancellable(bodyWithCancelCheck: (() => Unit) => T): FutureExt[T] = {
+		construct(bodyWithCancelCheck(checkIsCanceled))
 	}
 
-	private def failIFcanceled(): Unit = if (canceled) throw new CancellationException
+	private def checkIsCanceled(): Unit = if (canceled) throw new CancellationException
 	private def construct(body: => T): FutureExt[T] = {
 		runnable = new AsyncRunnable(id) {
 			override def run(): Unit = {

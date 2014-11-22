@@ -25,14 +25,14 @@ trait DbTableService extends AppService {
 
 	override protected def onStart(): Unit = {
 		open().onComplete {
-			case Success(_) => startedStatus = Success(true)
-			case Failure(e) => startedStatus = Failure(e)
+			case Success(_) => isStarted = Success(true)
+			case Failure(e) => isStarted = Failure(e)
 		}
 	}
 	override protected def onStop(): Unit = {
 		close().onComplete {
-			case Success(_) => stoppedStatus = Success(true)
-			case Failure(e) => stoppedStatus = Failure(e)
+			case Success(_) => isStopped = Success(true)
+			case Failure(e) => isStopped = Failure(e)
 		}
 	}
 }

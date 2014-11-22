@@ -12,6 +12,7 @@ object App {
 
 	private def init(a: App) {
 		app = a
+		logw("", s"${" " * (60 -3) }   >   APP  CREATED  #${app.hashCode()}")
 		serviceMgr(app, activityMgr)
 		activityMgr(app, serviceMgr)
 		app.registerActivityLifecycleCallbacks(activityMgr)
@@ -41,8 +42,8 @@ abstract class App extends Application with AppConfig with Loggable /*TODO with 
 //	override def onCreate(): Unit = App(this)
 
 
-	/** The good place to register services */
-	def onRegisterServices(implicit sm: AppServiceContext): Unit
+	/** The place to register services */
+	def onRegisterServices(implicit context: AppServiceContext): Unit
 	/**
 	 * @param service
 	 * @return true - if error is fatal and App will be set in FAILED state; false - if App should continue

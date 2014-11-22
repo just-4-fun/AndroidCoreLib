@@ -1,7 +1,7 @@
 package just4fun.android.core.async
 
 import scala.concurrent.ExecutionContext
-import android.os.{HandlerThread, Looper, Message, Handler}
+import android.os._
 import project.config.logging.Logger._
 import java.util.concurrent.{LinkedBlockingQueue, ThreadFactory, TimeUnit, ThreadPoolExecutor}
 import java.util.concurrent.atomic.AtomicInteger
@@ -17,8 +17,8 @@ trait AsyncExecContext extends ExecutionContext with Loggable {
 		prepare().execute(delayMs, id, future.runnable)
 		future
 	}
-	def executeCancellable[T](id: Any, delayMs: Long = 0, replace: Boolean = true)(body: (() => Unit) => T): FutureExt[T] = {
-		val future = FutureExt(this, id) thatRunsCancellable body
+	def executeCancelable[T](id: Any, delayMs: Long = 0, replace: Boolean = true)(bodyWithCancelCheck: (() => Unit) => T): FutureExt[T] = {
+		val future = FutureExt(this, id) thatRunsCancellable bodyWithCancelCheck
 		if (replace) cancel(id)
 		prepare().execute(delayMs, id, future.runnable)
 		future
@@ -53,12 +53,12 @@ class HandlerContext(name: String, looper: Looper) extends AsyncExecContext {
 			msg.getCallback match {
 				case r: Runnable => handle(r)
 				case null if msg.what == QUIT => quit()
-				case _ => logw("ASYNC", s"$threadName  UNKNOWN:  what= ${msg.what}, token= ${msg.obj}")
+				case _ => logw("ASYNC", s"$threadName  UNKNOWN:  what= ${msg.what }, token= ${msg.obj }")
 			}
 		}
 	}
 	def handle(runnable: Runnable) {
-		lazy val id = runnable match {
+		val id = runnable match {
 			case r: AsyncRunnable => if (r.id == null) null else r.id.toString
 			case r if r.getClass.getSimpleName == "CallbackRunnable" => "callback"
 			case _ => "future"
@@ -71,14 +71,14 @@ class HandlerContext(name: String, looper: Looper) extends AsyncExecContext {
 		handler.post(r)
 	}
 	override def execute(delay: Long, id: Any, r: Runnable): Unit = {
-		handler.postDelayed(r, delay)
+		handler.postAtTime(r, id, SystemClock.uptimeMillis() + delay)
 	}
 	override def cancel(idORrunnable: Any): Unit = idORrunnable match {
 		case r: Runnable => handler.removeCallbacks(r)
 		case id => if (id != null) handler.removeCallbacksAndMessages(id)
 	}
 	override def clear(): Unit = handler.removeCallbacksAndMessages(null)
-	def quit(safely: Boolean = false)  = if (!quit) {
+	def quit(safely: Boolean = false) = if (!quit) {
 		if (safely) handler.sendEmptyMessage(QUIT)
 		else {
 			quit = true
@@ -97,7 +97,7 @@ class HandlerContext(name: String, looper: Looper) extends AsyncExecContext {
 
 /* THREAD POOL CONTEXT */
 
-/** [[threadPoolExecutor]] should be set in AppConfig before using this object. Else it will be set to [[DefaultThreadPoolExecutor]]  */
+/** [[threadPoolExecutor]] should be set in AppConfig before using this object. Else it will be set to [[DefaultThreadPoolExecutor]] */
 object NewThreadContext extends ThreadPoolContext(threadPoolExecutor)
 
 

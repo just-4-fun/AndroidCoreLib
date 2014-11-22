@@ -22,10 +22,10 @@ class DbService(val name: String = "main") extends Db with AppService with Paral
 		}
 		db = dbHelper.getWritableDatabase // SQLiteException if the database cannot be opened for writing
 	}
-	override protected def isStarted(canceled: Boolean): Try[Boolean] = Success(db != null && db.isOpen)
+	override protected def isStarted: Try[Boolean] = Success(db != null && db.isOpen)
 	override protected def onStop(): Unit = asyncExecContext.quit(true)
-	override protected def isStopped(): Try[Boolean] = Success(asyncExecContext.isQuit)
-	override protected def onFinalize(): Unit = { if (isStarted(startCanceled) != Success(false)) db.close(); db = null }
+	override protected def isStopped: Try[Boolean] = Success(asyncExecContext.isQuit)
+	override protected def onFinalize(): Unit = { if (isStarted != Success(false)) db.close(); db = null }
 }
 
 

@@ -11,7 +11,7 @@ import scala.util.{Success, Try}
 object Test1 {
 	import App._
 	config.singleInstance = false
-	def apply() = {
+	def apply(implicit scxt: AppServiceContext) = {
 		TestService_2.register()
 		val ts1: TestService_1 = new TestService_1().register() //.dependsOn(TestService_2)
 	}
@@ -25,15 +25,15 @@ object TestService_1 {
 }
 
 class TestService_1 extends Service4test with ActiveStateWatcher{
-	override def ID: String = TestService_1.ID
+	ID = TestService_1.ID
 
 	override protected def onStart(): Unit = {
 		TestService_2.watchActiveStateChange(this)
-		post("Start", 5000, false) { startedStatus = Success(true);  callService2()}
+		post("Start", 5000, false) { isStarted = Success(true);  callService2()}
 		callService2()
 	}
 	override protected def onStop(): Unit = {
-		post("stop", 5000, false) { stoppedStatus = Success(true) }
+		post("stop", 5000, false) { isStopped = Success(true) }
 	}
 	override def onActiveStateChanged(service: AppService, active: Boolean) = {
 		service match {
@@ -56,13 +56,13 @@ class TestService_1 extends Service4test with ActiveStateWatcher{
 
 object TestService_2 extends Service4test with ParallelThreadFeature {
 	import ServiceState._
-	override def ID: String = "SERVICE 2"
+	ID = "SERVICE 2"
 
 	override protected def onStart(): Unit = {
-		post("start", 2000, false) { startedStatus = Success(true) }
+		post("start", 2000, false) { isStarted = Success(true) }
 	}
 	override protected def onStop(): Unit = {
-		post("stop", 2000, false) { stoppedStatus = Success(true) }
+		post("stop", 2000, false) { isStopped = Success(true) }
 	}
 	def use()(implicit context: AppServiceContext): Try[String] = ifActive { "USED" }
 	//	def useAsync()(implicit context: AppServiceContext): FutureExt[Int] = post("Test", 0) {

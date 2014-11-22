@@ -1,6 +1,6 @@
 package just4fun.android.demo1
 
-import just4fun.android.core.app.{AppService, ParallelThreadFeature, AppServiceContext, App}
+import just4fun.android.core.app._
 import just4fun.android.core.sqlite.DbService
 import just4fun.android.core.utils._
 import just4fun.android.core.persist._
@@ -89,13 +89,16 @@ class AppDemo extends App {
 		//		TestDependMultiSimple2()
 		//		TestDependShared2()
 		//		TestDependFILO1()
-		TestDbTable1()
+		TestDbTable1(sm)
 
 	}
 
 	override def onExited(): Unit = {
 		Test.check()
 	}
+	/**
+	  */
+	override def tikDelay: TikDelay = new TikDelayTest
 }
 
 /* TESTING API */

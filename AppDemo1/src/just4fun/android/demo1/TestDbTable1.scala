@@ -1,17 +1,17 @@
 package just4fun.android.demo1
 
-import just4fun.android.core.app.{AppService, ActiveStateWatcher, App}
+import just4fun.android.core.app.{AppServiceContext, AppService, ActiveStateWatcher, App}
 import just4fun.android.core.app.App._
 import just4fun.android.core.async.Async._
 import just4fun.android.core.sqlite.{DbService, Db, DbSchema}
 import project.config.logging.Logger._
 
-import scala.util.{Failure, Success}
+import scala.util.{Try, Failure, Success}
 
 object TestDbTable1 extends Loggable with ActiveStateWatcher{
 	import App._
 	config.singleInstance = true
-	def apply() = {
+	def apply(implicit scxt: AppServiceContext) = {
 		val dbsvc = new DbService().register()
 		val tabA = new TabA(dbsvc).dependsOn(dbsvc).register()
 		val tabB = new TabB(dbsvc).dependsOn(dbsvc).register()
@@ -59,7 +59,7 @@ object TestDbTable1 extends Loggable with ActiveStateWatcher{
 //	}
 	/** Is called when Service s becomes available for use (STARTED) or unavailable (FAILED or stopped)
 	  * @param service Service to watch
-	  * @param active true - if s can be used; false otherwise
+	  * @param startStatus true - if s can be used; false otherwise
 	  * @return  true - to keep watching; false - to stop watching
 	  */
 	override def onActiveStateChanged(service: AppService, active: Boolean): Boolean = {
@@ -68,7 +68,7 @@ object TestDbTable1 extends Loggable with ActiveStateWatcher{
 
 			case s: TabA =>
 				s.select().onCompleteInUi {
-					case Success(list) => logw("TabA list= "+list.mkString("\n"))
+					case Success(list) => logw(s"TabA list= ${list.size}")
 					case Failure(ex) => loge(ex)
 				}
 				val obj = s().setValuesArray(List(null, "A object", 1, true))
@@ -76,7 +76,7 @@ object TestDbTable1 extends Loggable with ActiveStateWatcher{
 
 			case s: TabB =>
 				s.select().onCompleteInUi {
-					case Success(list) => logw("TabB list= "+list.mkString("\n"))
+					case Success(list) => logw(s"TabB list= ${list.size}")
 					case Failure(ex) => loge(ex)
 				}
 				val obj = s().setValuesArray(List(null, "B object", 1, true))

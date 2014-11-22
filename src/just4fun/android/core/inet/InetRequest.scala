@@ -91,7 +91,8 @@ import InetRequest._
 	private[this] def onError(ex: Throwable) = ex match {
 		case ex: IOException => if (conn != null) TryNLog {
 			httpMessage = conn.getResponseMessage
-			val errInfo = (new StreamToString)(conn.getErrorStream).getOrElse("")
+			val errStream = conn.getErrorStream
+			val errInfo = if (errStream != null) (new StreamToString)(errStream).getOrElse("") else "ErrorStream = null"
 			httpMessage = (if (httpMessage == null) "" else httpMessage + ";  ") + errInfo
 		}
 		case ex: InetRequestException => httpCode = ex.code

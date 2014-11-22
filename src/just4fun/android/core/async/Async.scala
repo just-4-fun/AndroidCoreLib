@@ -19,13 +19,25 @@ object Async {
 		val _cxt = if (cxt == null) UiThreadContext else cxt
 		_cxt.execute[T](id, delayMs, replace)(body)
 	}
-	def postCancellable[T](id: Any, delayMs: Long = 0, replace: Boolean = true)(body: (() => Unit) => T)(implicit cxt: AsyncExecContext = null) = {
+	def postCancellable[T](id: Any, delayMs: Long = 0, replace: Boolean = true)(bodyWithCancelCheck: (() => Unit) => T)(implicit cxt: AsyncExecContext = null): FutureExt[T] = {
 		val _cxt = if (cxt == null) UiThreadContext else cxt
-		_cxt.executeCancellable[T](id, delayMs, replace)(body)
+		_cxt.executeCancelable[T](id, delayMs, replace)(bodyWithCancelCheck)
 	}
-	def postInUI[T](id: Any, delayMs: Long = 0, replace: Boolean = true) = UiThreadContext.execute[T](id, delayMs, replace) _
-	def postInUICancellable[T](id: Any, delayMs: Long = 0, replace: Boolean = true) = UiThreadContext.executeCancellable[T](id, delayMs, replace) _
+	def cancelPost(id: Any)(implicit cxt: AsyncExecContext = null) = {
+		val _cxt = if (cxt == null) UiThreadContext else cxt
+		_cxt.cancel(id)
+	}
+
+	def postUI[T](id: Any, delayMs: Long = 0, replace: Boolean = true) = UiThreadContext.execute[T](id, delayMs, replace) _
+	def postUICancelable[T](id: Any, delayMs: Long = 0, replace: Boolean = true)(bodyWithCancelCheck: (() => Unit) => T): FutureExt[T] = {
+		UiThreadContext.executeCancelable[T](id, delayMs, replace)(bodyWithCancelCheck)
+	}
+	def cancelPostUI(id: Any) = UiThreadContext.cancel(id)
+
 	def fork[T](id: Any, delayMs: Long = 0, replace: Boolean = true) = NewThreadContext.execute[T](id, delayMs, replace) _
-	def forkCancellable[T](id: Any, delayMs: Long = 0, replace: Boolean = true) = NewThreadContext.executeCancellable[T](id, delayMs, replace) _
+	def forkCancellable[T](id: Any, delayMs: Long = 0, replace: Boolean = true)(bodyWithCancelCheck: (() => Unit) => T): FutureExt[T] = {
+		NewThreadContext.executeCancelable[T](id, delayMs, replace)(bodyWithCancelCheck)
+	}
+	def cancelFork(id: Any) = NewThreadContext.cancel(id)
 
 }

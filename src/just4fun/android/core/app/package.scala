@@ -39,24 +39,16 @@ package object app {
 
 
 	/* EXCEPTIONS */
-	case object ServiceNotActiveException extends Exception
-	case object DependencyException extends Exception
+	case class ServiceNotActiveException(serviceId: String, serviceState: String) extends Exception {
+		override def getMessage: String = s"Service: [$serviceId], state: $serviceState.  ${super.getMessage}"
+	}
+	case class DependencyException(parentId: String, childId: String) extends Exception {
+		override def getMessage: String = s"Parent: [$parentId], Child: [$childId].  ${super.getMessage}"
+	}
+	case class CyclicDependencyException(parentId: String, childId: String) extends Exception {
+		override def getMessage: String = s"Parent: [$parentId], Child: [$childId].  ${super.getMessage}"
+	}
 	case object NoConfigException extends Exception
 	case object TimeoutException extends Exception
-
-
-
-
-	/* SERVICE AVAILABILITY WATCHER */
-	trait ActiveStateWatcher {
-		/** Is called when Service started (state = STARTED) or inaccessible (state >= STOP).
-		  * @param service Service that state is watched
-		  * @param active true - if service is started; false otherwise
-		  * @return  true - to keep watching; false - to stop watching
-		  */
-		def onActiveStateChanged(service: AppService, active: Boolean): Boolean
-	}
-
-
 
 }
